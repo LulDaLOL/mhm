@@ -1,0 +1,51 @@
+name: Build iPhone app
+
+# Builds Da Trading Tool for iPhone and attaches DaTradingTool.ipa to the run.
+# Runs on every push to main, or by hand from the Actions tab ("Run workflow").
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build DaTradingTool.ipa
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Unsigned build: Sideloadly (or AltStore) signs it with your Apple ID when you install it.
+      - name: Build the app
+        run: |
+          xcodebuild build \
+            -project DaTradingTool.xcodeproj \
+            -scheme DaTradingTool \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package it as an .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/DaTradingTool.app Payload/
+          zip -qry DaTradingTool.ipa Payload
+
+      - name: Check the .ipa
+        run: |
+          for f in DaTradingTool Info.plist Web/index.html; do
+            unzip -l DaTradingTool.ipa "Payload/DaTradingTool.app/$f" > /dev/null || { echo "::error::$f is missing from the .ipa"; exit 1; }
+          done
+          ls -lh DaTradingTool.ipa
+
+      - name: Attach the .ipa to this run
+        uses: actions/upload-artifact@v7
+        with:
+          path: DaTradingTool.ipa
+          archive: false
+          if-no-files-found: error
