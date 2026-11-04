@@ -1904,6 +1904,9 @@ dialog.authdlg .au-form{display:flex;flex-direction:column;gap:12px;padding:0;ov
 .au-go:active{transform:translateY(1px)}
 .au-go:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .au-go[disabled]{opacity:.65;cursor:default}
+.au-plans{display:grid;gap:8px;margin:12px 0 6px}.au-plans .au-sub{margin:0 0 2px}
+.au-plans .au-go{height:auto;min-height:52px;padding:8px 12px;flex-direction:column;gap:2px}.au-plans .au-go small{font-size:12px;font-weight:500;opacity:.85}
+.au-plans .au-go.alt{background:transparent;box-shadow:0 0 0 1px rgba(var(--a),.6) inset;color:var(--accent)}
 .au-spin{display:none;width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:auSpin .7s linear infinite}
 .au-go.busy .au-spin{display:block}
 @keyframes auSpin{to{transform:rotate(360deg)}}
@@ -10047,10 +10050,50 @@ function chartExtras() {
    and the paywall and sign-in switches. The paywall is off until you turn it on. */
 const SUPA_URL = 'https://gepsnmdeyejppvziagag.supabase.co';
 const SUPA_KEY = 'sb_publishable_WFyx3mlVENsPJLsak7zBXA_6fu4-nhu';   // publishable (public) key — never put the sb_secret_ key here
-const acct = { sb: null, user: null, profile: null, cfg: { paywall: false, require_login: false }, err: '', busy: false, users: null, syncT: 0 };
+const acct = { sb: null, user: null, profile: null, cfg: { paywall: false, require_login: false, pro_link: '', life_link: '', portal_link: '' }, err: '', busy: false, users: null, syncT: 0 };
 const supaUrl = () => clean(S.supaUrl) || SUPA_URL, supaKey = () => clean(S.supaKey) || SUPA_KEY;
 const isMaster = () => !!(acct.profile && acct.profile.role === 'master');
 const planOf = () => (acct.profile && acct.profile.plan) || 'free';
+const planActive = () => { const p = planOf(); if (p === 'lifetime') return true; if (p !== 'pro') return false; const u = acct.profile && acct.profile.pro_until; return !u || Date.parse(u) + 2 * 864e5 > Date.now(); };
+/* ---------- buying Pro (Stripe) ----------
+   Pro is $7.99 a month and Lifetime $49.99 once, paid on Stripe's own checkout page. The checkout carries your account id, so
+   when the payment goes through Stripe tells the site's payment function (Supabase) and your plan switches by itself; a monthly
+   plan switches back to Free when it's cancelled and runs out. Back from checkout, the page checks every few seconds until it does. */
+const PRICES = { pro: '$7.99 / month', life: '$49.99 once' };
+function checkoutUrl(kind) {
+  const base = kind === 'life' ? acct.cfg.life_link : acct.cfg.pro_link; if (!base || !acct.user) return '';
+  const u = new URL(base); u.searchParams.set('client_reference_id', acct.user.id); if (acct.user.email) u.searchParams.set('prefilled_email', acct.user.email);
+  return u.toString();
+}
+function buyPlan(kind) {
+  if (!acct.user) { openAuth('in'); return; }
+  const url = checkoutUrl(kind); if (!url) { toast('Checkout isn\'t set up yet', 'The site owner still has to add the payment links.'); return; }
+  store.set('payWait', { kind, at: Date.now() }); openOut(url);
+  toast('Checkout opened', 'Finish paying on Stripe. Pro unlocks here by itself a few seconds after the payment goes through.'); payWatch();
+}
+function manageUrl() { const b = acct.cfg.portal_link; if (!b) return ''; const u = new URL(b); if (acct.user && acct.user.email) u.searchParams.set('prefilled_email', acct.user.email); return u.toString(); }
+// after a checkout: look for the new plan every 4 s for up to 10 minutes (the payment page may stay open a while)
+let payT = 0;
+function payWatch() {
+  const w = store.get('payWait', null); if (!w || !w.at || Date.now() - w.at > 10 * 60e3) { store.set('payWait', null); return; }
+  if (planActive() && (w.kind !== 'life' || planOf() === 'lifetime')) { store.set('payWait', null); toast('Welcome to ' + (planOf() === 'lifetime' ? 'Lifetime' : 'Pro') + '!', 'Everything is unlocked.'); return; }
+  clearTimeout(payT); payT = setTimeout(async () => { if (acct.sb && acct.user) await acctLoad(); payWatch(); }, 4000);
+}
+function planBox() {
+  if (!acct.user || isMaster()) return null;
+  const p = planOf(), active = planActive(), sub = !!(acct.profile && acct.profile.stripe_subscription);
+  if (p === 'lifetime') return null;
+  if (active && p === 'pro') {
+    const u = acct.profile && acct.profile.pro_until, url = sub ? manageUrl() : '';
+    const b = url ? h('button', { type: 'button', class: 'au-ghost' }, 'Manage subscription') : null; if (b) b.addEventListener('click', () => openOut(url));
+    const life = h('button', { type: 'button', class: 'au-link' }, 'Switch to Lifetime · ' + PRICES.life + ' →'); life.addEventListener('click', () => buyPlan('life'));
+    return h('div', { class: 'au-plans' }, u ? h('p', { class: 'au-sub' }, 'Pro renews on ' + new Date(u).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + '.') : null, b, life);
+  }
+  const mk = (kind, title, price, note) => { const b = h('button', { type: 'button', class: 'au-go' + (kind === 'life' ? ' alt' : '') }, h('span', null, title + ' · ' + price), h('small', null, note)); b.addEventListener('click', () => buyPlan(kind)); return b; };
+  return h('div', { class: 'au-plans' },
+    h('p', { class: 'au-sub' }, 'Unlock verified launches, the FOMO hub, fomo holders, filters and every setting.'),
+    mk('pro', 'Pro', PRICES.pro, 'Cancel any time'), mk('life', 'Lifetime', PRICES.life, 'Pay once, Pro forever'));
+}
 let sbLib = null;
 function sbLoad() {
   if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
@@ -10073,7 +10116,7 @@ async function acctInit() {
 }
 async function acctCfg() {
   if (!acct.sb) return;
-  try { const { data } = await acct.sb.from('app_config').select('*').eq('id', 1).maybeSingle(); if (data) acct.cfg = { paywall: !!data.paywall, require_login: !!data.require_login }; } catch (e) { /* table not set up yet */ }
+  try { const { data } = await acct.sb.from('app_config').select('*').eq('id', 1).maybeSingle(); if (data) acct.cfg = { paywall: !!data.paywall, require_login: !!data.require_login, pro_link: safeUrl(data.pro_link) || '', life_link: safeUrl(data.life_link) || '', portal_link: safeUrl(data.portal_link) || '' }; } catch (e) { /* table not set up yet */ }
   applyGate();
 }
 async function acctLoad() {
@@ -10119,13 +10162,13 @@ function proLockApply(locked) {
   for (const sec of document.querySelectorAll('#viewSettings .setsec')) set(sec, locked && sec.dataset.sec !== 'account');
   for (const sec of document.querySelectorAll('#viewFilters .setsec, #viewFilters .formfoot, #viewSettings .formfoot')) set(sec, locked);
   set(document.querySelector('#pLaunches .pbody'), locked); set(document.querySelector('#viewFomo .fxlay'), locked); set(document.querySelector('#viewFomo .fxacts'), locked);
-  for (const b of document.querySelectorAll('[data-prosign]')) setText(b, acct.user ? 'Your plan: ' + planOf().toUpperCase() : 'Sign in for Pro');
+  for (const b of document.querySelectorAll('[data-prosign]')) setText(b, !acct.user ? 'Sign in for Pro' : locked ? 'Go Pro · ' + PRICES.pro : 'Your plan: ' + planOf().toUpperCase());
   if (locked) { const nav = document.querySelector('#viewSettings .setnav [data-sec="account"]'); if (nav && view === 'settings' && nav.getAttribute('aria-selected') !== 'true') nav.click(); }
 }
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-prosign]')) { e.preventDefault(); openAuth(acct.user ? 'me' : 'in'); } });
 // paywall and sign-in switches (off unless the master turns them on). This page only hides things; the real lock is the database
 function applyGate() {
-  const d = document.documentElement, locked = !!(acct.sb && acct.cfg.paywall && !isMaster() && !/^(pro|lifetime)$/.test(planOf())), was = d.classList.contains('pro-locked');
+  const d = document.documentElement, locked = !!(acct.sb && acct.cfg.paywall && !isMaster() && !planActive()), was = d.classList.contains('pro-locked');
   d.classList.toggle('pro-locked', locked); d.classList.toggle('free-ui', locked); d.classList.toggle('is-master', isMaster());
   store.set('wasLocked', locked); proLockApply(locked);
   if (locked && !was) { fsStop(); if (view === 'filters') showView('radar'); }
@@ -10154,11 +10197,14 @@ create table if not exists public.profiles (
   plan text not null default 'free' check (plan in ('free','pro','lifetime')),
   fomo_handle text, fomo_wallet text,
   following jsonb not null default '[]'::jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  pro_until timestamptz, stripe_customer text, stripe_subscription text
 );
 create table if not exists public.app_config (
   id int primary key default 1, paywall boolean not null default false, require_login boolean not null default false, updated_at timestamptz default now()
 );
+alter table public.app_config add column if not exists pro_link text, add column if not exists life_link text, add column if not exists portal_link text;
+alter table public.profiles add column if not exists pro_until timestamptz, add column if not exists stripe_customer text, add column if not exists stripe_subscription text;
 insert into public.app_config (id) values (1) on conflict do nothing;
 alter table public.profiles enable row level security;
 alter table public.app_config enable row level security;
@@ -10175,7 +10221,9 @@ create policy "config update" on public.app_config for update using (public.is_m
 -- only the master can change anyone's role or plan
 create or replace function public.lock_role() returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if not public.is_master() then new.role := old.role; new.plan := old.plan; end if;
+  if not public.is_master() and coalesce(auth.role(), '') <> 'service_role' and session_user not in ('postgres', 'supabase_admin') then
+    new.role := old.role; new.plan := old.plan; new.pro_until := old.pro_until; new.stripe_customer := old.stripe_customer; new.stripe_subscription := old.stripe_subscription;
+  end if;
   return new;
 end $$;
 drop trigger if exists profiles_lock_role on public.profiles;
@@ -10355,7 +10403,7 @@ function renderAuth() {
         h('div', { class: 'au-row' }, h('span', null, 'Following'), h('b', null, follows.length + ' trader' + (follows.length === 1 ? '' : 's')), h('span', { class: 'au-ok' }, auI('check'), 'synced')),
         p.created_at ? h('div', { class: 'au-row' }, h('span', null, 'Member since'), h('b', null, new Date(p.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }))) : null),
       acct.err ? h('p', { class: 'au-err', role: 'alert' }, acct.err) : null,
-      set, h('div', { class: 'au-alt' }, out));
+      planBox(), set, h('div', { class: 'au-alt' }, out));
   } else if (AU.mode === 'sent') {
     const back = h('button', { type: 'button', class: 'au-ghost' }, 'Back to sign in'); back.addEventListener('click', () => { AU.mode = 'in'; AU.err = ''; renderAuth(); });
     const what = { magic: 'a sign-in link', reset: 'a password reset link', confirm: 'a link to confirm your account' }[AU.sentKind] || 'a link';
@@ -10705,7 +10753,7 @@ function v12Start() {
   later(() => loop(trendsCycle, () => 60)(), 3000);
   setInterval(() => { if (view === 'filters' && !document.hidden) renderFinders(); if (chart.open && !document.hidden) chartInfo(); }, 1500);
   setInterval(() => { if (!document.hidden && fomoTab === 'following' && view === 'radar') renderFollowing(); }, 15000);
-  renderFinders(); acctInit(); later(lpStart, 4000); later(textureCard, 60);
+  renderFinders(); acctInit(); later(lpStart, 4000); later(textureCard, 60); later(payWatch, 3000); // back from a checkout: unlock as soon as the payment lands
   later(() => { if (S.proChart) lwcLoad().catch(() => {}); }, 2500); // the chart engine loads in the background, so the first chart opens fast
   GUIDE_SVC.push(['Finders', 'More token finders', 'Jupiter new tokens, DexScreener takeovers and top boosts, fresh socials and narrative search, all through your finder gate.'],
     ['Fomo tracker', 'Fomo holders, smart money & following', 'Reads fomo app trades on-chain (v1 transactions too), checks every known fomo wallet\'s real balance on each coin for live fomo holders, spots smart-money clusters, builds the top traders board and watches the wallets you follow.'],
