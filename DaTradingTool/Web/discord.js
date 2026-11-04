@@ -27,6 +27,19 @@
     'gateway.pinata.cloud': '/ipfs3',
     'fonts.googleapis.com': '/gf',
     'fonts.gstatic.com': '/gs',
+    'api.gopluslabs.io': '/goplus',
+    'api.coingecko.com': '/cg',
+    'api.fxtwitter.com': '/fxt',
+    'api.vxtwitter.com': '/vxt',
+    'api.rss2json.com': '/rss',
+    'arweave.net': '/ar',
+    'public.api.bsky.app': '/bsky',
+    'wikimedia.org': '/wm',
+    'cdn.jsdelivr.net': '/jsd',
+    'unpkg.com': '/unpkg',
+    'gepsnmdeyejppvziagag.supabase.co': '/supa',
+    'ntfy.sh': '/ntfy',
+    'pumpportal.fun': '/pp',
   };
 
   const remap = raw => {
@@ -56,16 +69,18 @@
   const RealWS = window.WebSocket;
   window.WebSocket = class extends RealWS { constructor(url, protocols) { super(remap(url), protocols); } };
 
-  // images (token logos): rewrite src when it is set, plus anything already in the page
-  const imgSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
-  Object.defineProperty(HTMLImageElement.prototype, 'src', {
-    configurable: true, enumerable: true,
-    get() { return imgSrc.get.call(this); },
-    set(v) { imgSrc.set.call(this, remap(v)); },
-  });
+  // images (token logos) and library scripts (charts, Supabase): rewrite src when it is set
+  for (const Proto of [HTMLImageElement.prototype, HTMLScriptElement.prototype]) {
+    const d = Object.getOwnPropertyDescriptor(Proto, 'src');
+    Object.defineProperty(Proto, 'src', {
+      configurable: true, enumerable: true,
+      get() { return d.get.call(this); },
+      set(v) { d.set.call(this, remap(v)); },
+    });
+  }
   const realSetAttr = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function (name, value) {
-    if (this instanceof HTMLImageElement && String(name).toLowerCase() === 'src') value = remap(value);
+    if ((this instanceof HTMLImageElement || this instanceof HTMLScriptElement) && String(name).toLowerCase() === 'src') value = remap(value);
     return realSetAttr.call(this, name, value);
   };
 
