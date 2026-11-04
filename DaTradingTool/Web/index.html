@@ -5178,6 +5178,7 @@ function addLaunchCard(it, fresh, opt) {
   const openIt = () => openChart(it.mint, { pool: it.pool, symbol: it.symbol, name: it.name, image: it.image });
   chartBox.addEventListener('click', openIt); chartBox.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIt(); } });
   chartBox.addEventListener('pointerenter', () => prefetchChart(it.mint, 0.3));
+  chartBox.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') prefetchChart(it.mint, 0.1); }, { passive: true });
   const x = h('button', { class: 'lcx', type: 'button', title: 'Hide this launch', 'aria-label': 'Hide $' + sym }, '✕');
   x.addEventListener('click', () => hideLaunch(it.mint));
   const sumR = cardSumEl(), fomoEl = h('div', { class: 'lcfomo' }), fhBox = h('div', { class: 'fhbox', hidden: true }), devEl = h('div', { class: 'lcdev' });
@@ -5206,7 +5207,7 @@ function addLaunchCard(it, fresh, opt) {
     mini, pxB, pxS, lst, vis: true, pool: it.pool || '', at: num(it.at), sum: sumR, sumFh: sumR.fh, fomoEl, fhBox, devEl });
   card.prepend(cardMinBtn(card, it.mint)); if (lcMinAll || lcMin.has(it.mint)) setCardMin(card, it.mint, true, true);
   fhRender(it.mint); cardDev(it.mint);
-  if (S.fomoHolders && running) { later(() => { const r = fh.get(it.mint); if (!r || !r.at) fhScan(it.mint, 1.4).catch(() => {}); }, 400 + Math.random() * 600); fsSoon(); }
+  if (S.fomoHolders && running) { later(() => { const r = fh.get(it.mint); if (!r || !r.at) fhScan(it.mint, fresh ? 0.9 : 1.4).catch(() => {}); }, fresh ? 60 : 400 + Math.random() * 600); fsSoon(); }
   picFor(it.mint, [it.image]).then(u => { if (!u || !card.isConnected) return; const ic = card.querySelector('.tokrow > .icon'); if (ic && !ic.querySelector('img')) { const img = h('img', { src: u, alt: '', referrerpolicy: 'no-referrer' }); img.onload = () => { ic.textContent = ''; ic.append(img); }; } const ls = launchStore.get(it.mint); if (ls && !ls.image) { ls.image = u; launchSaveSoon(); } });
   if (miniObs) miniObs.observe(card);
   if (!launchStore.has(it.mint) || !opt.restored) { launchStore.set(it.mint, slimLaunch(it)); launchSaveSoon(); }
@@ -5747,6 +5748,7 @@ function moverRow(m, kind) {
   el.tabIndex = 0; el.setAttribute('role', 'button'); el.title = 'Open the live chart for $' + (t.symbol || '?');
   el.addEventListener('click', e => { if (!e.target.closest('a,button')) openChart(m.mint); });
   let pre = 0; el.addEventListener('pointerenter', () => { pre = setTimeout(() => prefetchChart(m.mint, 0.3), 120); });
+  el.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { clearTimeout(pre); prefetchChart(m.mint, 0.1); } }, { passive: true });
   el.addEventListener('pointerleave', () => clearTimeout(pre));
   el.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); openChart(m.mint); } });
   return { el, rk, sym, nm, tags, pxEl, buysEl, lastB: -1, rest, l2, age, ageWrap, liveEl, dotI, liveTxt, upd, line, hi, dot, big, lbl, px: 0, bigTxt: '', ticks: -1, sparkVer: -1, sparkAt: 0 };
@@ -8861,7 +8863,9 @@ async function followCycle() {
 const TOKEN_PROG = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', TOKEN22_PROG = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', ATA_PROG = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 function b58enc(u8) { let n = 0n; for (const b of u8) n = (n << 8n) | BigInt(b); let s = ''; while (n > 0n) { s = B58A[Number(n % 58n)] + s; n /= 58n; } for (const b of u8) { if (b) break; s = '1' + s; } return s; }
 function b64bytes(s) { try { const bin = atob(s || ''), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; } catch (e) { return null; } }
-function onCurve(b) { let y = 0n; for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(b[i]); y &= (1n << 255n) - 1n; if (y >= ED_P) return false; const y2 = y * y % ED_P, u = (y2 - 1n + ED_P) % ED_P, w = (ED_D * y2 + 1n) % ED_P, x2 = u * edPow(w, ED_P - 2n) % ED_P; return x2 === 0n || edPow(x2, (ED_P - 1n) / 2n) === 1n; }
+const ED_H = (ED_P - 1n) / 2n;
+// is this point on the curve? x² = u/w has a root exactly when u·w is a square (w is never 0), so one exponentiation is enough
+function onCurve(b) { let y = 0n; for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(b[i]); y &= (1n << 255n) - 1n; if (y >= ED_P) return false; const y2 = y * y % ED_P, u = (y2 - 1n + ED_P) % ED_P; if (u === 0n) return true; const w = (ED_D * y2 + 1n) % ED_P; return edPow(u * w % ED_P, ED_H) === 1n; }
 // SHA-256 in plain JS (crypto.subtle is missing on pages that aren't https, like some app builds), for token account addresses
 const SHA_K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
 function sha256(msg) {
@@ -8879,8 +8883,7 @@ function sha256(msg) {
 }
 // a wallet's associated token account for a coin (the account wallets and the fomo app use), worked out locally: no RPC call
 const ataCache = new Map(), PDA_TAG = new TextEncoder().encode('ProgramDerivedAddress');
-function ataOf(owner, mint, prog) {
-  const k = owner + mint + (prog || ''); if (ataCache.has(k)) return ataCache.get(k);
+function ataCore(owner, mint, prog) {
   let v = '';
   try {
     const o = b58bytes(owner), m = b58bytes(mint), p = b58bytes(prog || TOKEN_PROG), a = b58bytes(ATA_PROG);
@@ -8889,7 +8892,57 @@ function ataOf(owner, mint, prog) {
       for (let bump = 255; bump >= 0; bump--) { buf[96] = bump; const d = sha256(buf); if (!onCurve(d)) { v = b58enc(d); break; } }
     }
   } catch (e) { v = ''; }
+  return v;
+}
+function ataOf(owner, mint, prog) {
+  const k = owner + mint + (prog || ''); if (ataCache.has(k)) return ataCache.get(k);
+  const v = ataCore(owner, mint, prog);
   if (ataCache.size > 30000) ataCache.clear(); ataCache.set(k, v); return v;
+}
+/* Many token account addresses at once (a fomo sweep is 100 to 2,000 wallets): worked out in a background worker, so the page,
+   the charts and scrolling never freeze while it runs (on a phone the same work used to lock the screen for seconds). Without
+   workers (some app builds and frames block them) it runs here in small slices, letting the page draw in between. */
+const ataWorker = (() => {
+  let wk = null, dead = false, seq = 0; const wait = new Map();
+  const finish = (id, out) => { const f = wait.get(id); if (f) { wait.delete(id); f(out); } };
+  function get() {
+    if (wk || dead || typeof Worker === 'undefined' || typeof Blob === 'undefined') return wk;
+    try {
+      const src = [
+        'const B58A = ' + JSON.stringify(B58A) + ', B58M = {}; for (let i = 0; i < 58; i++) B58M[B58A[i]] = BigInt(i);',
+        b58bytes.toString(), b58enc.toString(),
+        'const ED_P = ' + ED_P + 'n, ED_D = ' + ED_D + 'n, ED_H = ' + ED_H + 'n;', 'const edPow = ' + edPow.toString() + ';',
+        onCurve.toString(), 'const SHA_K = new Uint32Array([' + Array.from(SHA_K).join(',') + ']);', sha256.toString(),
+        'const TOKEN_PROG = ' + JSON.stringify(TOKEN_PROG) + ', ATA_PROG = ' + JSON.stringify(ATA_PROG) + ', PDA_TAG = new TextEncoder().encode("ProgramDerivedAddress");',
+        ataCore.toString(),
+        'onmessage = e => { const d = e.data || {}; postMessage({ id: d.id, out: (d.owners || []).map(o => ataCore(o, d.mint, d.prog)) }); };',
+      ].join('\n');
+      const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      wk = new Worker(url);
+      wk.onmessage = e => { const d = e.data || {}; finish(d.id, Array.isArray(d.out) ? d.out : null); };
+      wk.onerror = () => { dead = true; try { wk.terminate(); } catch (x) { /* gone */ } wk = null; for (const id of [...wait.keys()]) finish(id, null); };
+    } catch (e) { dead = true; wk = null; }
+    return wk;
+  }
+  return {
+    run(owners, mint, prog) {
+      const w = get(); if (!w) return Promise.resolve(null);
+      const id = ++seq;
+      return new Promise(res => { wait.set(id, res); try { w.postMessage({ id, owners, mint, prog }); } catch (e) { finish(id, null); } setTimeout(() => finish(id, null), 20000); });
+    },
+  };
+})();
+async function atasOf(owners, mint, prog) {
+  const out = new Map(), todo = [];
+  for (const o of owners) { const k = o + mint + (prog || ''); if (ataCache.has(k)) out.set(o, ataCache.get(k)); else if (!todo.includes(o)) todo.push(o); }
+  if (!todo.length) return out;
+  let got = await ataWorker.run(todo, mint, prog);
+  if (!Array.isArray(got) || got.length !== todo.length) { // no worker here: small slices with a pause for the page in between
+    got = [];
+    for (let i = 0; i < todo.length; i++) { got.push(ataCore(todo[i], mint, prog)); if (i % 4 === 3) await new Promise(r => setTimeout(r, 0)); }
+  }
+  todo.forEach((o, i) => { const v = got[i] || ''; if (ataCache.size > 30000) ataCache.clear(); ataCache.set(o + mint + (prog || ''), v); out.set(o, v); });
+  return out;
 }
 // the holders RPC (Settings › Fomo) when set, else your main one
 const fhUrl = () => safeUrl(S.fhRpcUrl) || S.rpcUrl;
@@ -9007,14 +9060,21 @@ async function fhVerify(mint, r, prio) {
   // fomo wallets met anywhere, newest first, every 90 s: the ones that bought before the radar was watching this coin
   if (now - r.sweepAt > 90e3) {
     r.sweepAt = now;
-    const pool = [...fomoKnown].filter(([w]) => !r.w.has(w)).sort((a, b) => b[1].at - a[1].at).slice(0, fhSweepN()).map(([w]) => w);
-    for (const f of follows) if (!r.w.has(f.addr) && !pool.includes(f.addr)) pool.push(f.addr);
-    if (myFomo.wallet && !r.w.has(myFomo.wallet) && !pool.includes(myFomo.wallet)) pool.push(myFomo.wallet);
+    const first = []; // you and the traders you follow are checked first
+    if (myFomo.wallet && !r.w.has(myFomo.wallet)) first.push(myFomo.wallet);
+    for (const f of follows) if (!r.w.has(f.addr) && !first.includes(f.addr)) first.push(f.addr);
+    const pool = first.concat([...fomoKnown].filter(([w]) => !r.w.has(w) && !first.includes(w)).sort((a, b) => b[1].at - a[1].at).slice(0, fhSweepN()).map(([w]) => w));
     for (const w of pool) list.push([w, '']);
     r.swept = pool.length;
   }
-  for (const it of list) if (!it[1]) it[1] = ataOf(it[0], mint, prog);
-  const ok = list.filter(x => x[1]); if (ok.length) await fhBalances(mint, r, ok, prio);
+  // in batches: each batch's token accounts are worked out off the main thread and its balances read right away, so the
+  // first holders show up in about a second instead of after the whole sweep
+  const B = 40;
+  for (let i = 0; i < list.length; i += B) {
+    const part = list.slice(i, i + B), need = part.filter(x => !x[1]).map(x => x[0]);
+    if (need.length) { const got = await atasOf(need, mint, prog); for (const x of part) if (!x[1]) x[1] = got.get(x[0]) || ''; }
+    const ok = part.filter(x => x[1]); if (ok.length) { await fhBalances(mint, r, ok, prio); if (i + B < list.length) fhRender(mint); }
+  }
 }
 // with a holders RPC: every holder of the coin (owner and amount only, so the answer stays small), each checked once for fomo trades
 const fhIdxBad = new Map(); // rpc url -> until when holder lookups are known not to work there
@@ -10646,7 +10706,7 @@ function v12Start() {
   setInterval(() => { if (view === 'filters' && !document.hidden) renderFinders(); if (chart.open && !document.hidden) chartInfo(); }, 1500);
   setInterval(() => { if (!document.hidden && fomoTab === 'following' && view === 'radar') renderFollowing(); }, 15000);
   renderFinders(); acctInit(); later(lpStart, 4000); later(textureCard, 60);
-  later(() => { if (S.proChart) lwcLoad().catch(() => {}); }, 8000); // the chart engine loads in the background, so the first chart opens fast
+  later(() => { if (S.proChart) lwcLoad().catch(() => {}); }, 2500); // the chart engine loads in the background, so the first chart opens fast
   GUIDE_SVC.push(['Finders', 'More token finders', 'Jupiter new tokens, DexScreener takeovers and top boosts, fresh socials and narrative search, all through your finder gate.'],
     ['Fomo tracker', 'Fomo holders, smart money & following', 'Reads fomo app trades on-chain (v1 transactions too), checks every known fomo wallet\'s real balance on each coin for live fomo holders, spots smart-money clusters, builds the top traders board and watches the wallets you follow.'],
     ['Trends', 'Trends & news', 'Google trending searches, TikTok, Instagram and Facebook buzz, Bluesky, top news and Wikipedia, fed into the narratives.']);
