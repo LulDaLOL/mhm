@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Da Trading Tool</title>
 <meta name="theme-color" content="#000000">
+<!-- inside Discord (Activity): routes outside services through Discord's proxy and opens links through Discord; does nothing anywhere else -->
+<script src="discord.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237a2cff'/%3E%3Cstop offset='.5' stop-color='%23ff2d95'/%3E%3Cstop offset='1' stop-color='%23ffb000'/%3E%3C/linearGradient%3E%3CradialGradient id='hl' cx='28%25' cy='18%25' r='70%25'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.45'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.06'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3Cfilter id='gl' x='-40%25' y='-40%25' width='180%25' height='180%25'%3E%3CfeGaussianBlur stdDeviation='5' result='b'/%3E%3CfeMerge%3E%3CfeMergeNode in='b'/%3E%3CfeMergeNode in='SourceGraphic'/%3E%3C/feMerge%3E%3C/filter%3E%3ClinearGradient id='ar' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='%23ffffff' stop-opacity='.85'/%3E%3Cstop offset='1' stop-color='%23ffffff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='4' y='4' width='248' height='248' rx='58' fill='url(%23bg)'/%3E%3Crect x='4' y='4' width='248' height='248' rx='58' fill='url(%23hl)'/%3E%3Cg fill='%23ffffff' opacity='.92'%3E%3Crect x='52' y='150' width='22' height='46' rx='4'/%3E%3Crect x='61.5' y='138' width='3' height='70' rx='1.5'/%3E%3Crect x='92' y='122' width='22' height='58' rx='4'/%3E%3Crect x='101.5' y='108' width='3' height='86' rx='1.5'/%3E%3Crect x='132' y='94' width='22' height='64' rx='4'/%3E%3Crect x='141.5' y='80' width='3' height='92' rx='1.5'/%3E%3C/g%3E%3Cpath d='M44 210 C 96 196, 150 150, 196 70' fill='none' stroke='url(%23ar)' stroke-width='15' stroke-linecap='round' filter='url(%23gl)'/%3E%3Cpath d='M168 62 L206 52 L200 92 Z' fill='%23fff' filter='url(%23gl)'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2668,6 +2670,7 @@ const NATIVE = (() => {
   };
   return api;
 })();
+const DISCORD = !!window.DaDiscord; // running as a Discord Activity (discord.js)
 const PHONE = !!NATIVE || /^(android|ios)$/.test(document.documentElement.dataset.shell || '') || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
 // the phone's back button: closes the top dialog, then goes back to the Radar; on the Radar the app goes to the background
 window.DA_BACK = () => {
@@ -5717,6 +5720,7 @@ function trRender() {
   go.disabled = tr.busy || wal.busy;
   setText(go, !wal.w ? (solWallets().length ? 'Connect wallet' : 'How to connect') : tr.busy ? 'Working…' : tr.armed ? (buy ? 'Buy anyway' : 'Sell anyway') : buy ? 'Buy' + (num(tr.amt) > 0 ? ' for ' + tr.amt + ' SOL' : '') : 'Sell' + (num(tr.amt) > 0 ? ' ' + fmtAmt(num(tr.amt)) + ' $' + tr.sym : ''));
   if (phoneOut()) setText(go, 'Open in Phantom ↗');
+  else if (DISCORD && !wal.w) setText(go, 'Open on Jupiter ↗');
   setText($('trAlt'), 'Open on Jupiter ↗');
 }
 function trQuoteSoon() { clearTimeout(tr.qT); tr.qT = setTimeout(trQuote, 380); }
@@ -5752,7 +5756,7 @@ async function trQuote() {
 }
 function trStatus(txt, cls, link) { const el = $('trStatus'); el.className = 'trstatus' + (cls ? ' ' + cls : ''); el.replaceChildren(txt, link ? h('span', null, ' ', h('a', { href: link }, 'View on Solscan ↗')) : ''); }
 async function trGo() {
-  if (!wal.w) { if (phoneOut()) openOut(phantomUrl(jupUrl(tr.mint, tr.side))); else openWalletPicker(); return; }
+  if (!wal.w) { if (phoneOut()) openOut(phantomUrl(jupUrl(tr.mint, tr.side))); else if (DISCORD) openOut(jupUrl(tr.mint, tr.side)); else openWalletPicker(); return; }
   if (tr.busy) return;
   if (!(num(tr.amt) > 0)) { trStatus('Pick an amount first.', 'err'); return; }
   if (tr.side === 'buy' && trRisk() && S.tradeConfirmRisky && !tr.armed) { tr.armed = true; trRender(); trStatus('This token fails your rug filters. Press again if you still want to buy it.', 'err'); return; }
@@ -5796,8 +5800,9 @@ function openWalletPicker() {
     })));
   } else {
     setText($('wdTitle'), 'Connect a wallet');
-    setText($('wdSub'), SHELL === 'desktop' ? 'Wallet extensions only run inside a web browser.' : PHONE ? 'Phone wallets run in their own app.' : 'No Solana wallet found in this page.');
-    const tips = SHELL === 'desktop' ? ['Buy and Sell open the token on Jupiter in your browser, where your wallet extension can sign.', 'To trade right inside the radar, use the Chrome version of Da Trading Tool.']
+    setText($('wdSub'), DISCORD ? 'Wallets don\'t run inside Discord.' : SHELL === 'desktop' ? 'Wallet extensions only run inside a web browser.' : PHONE ? 'Phone wallets run in their own app.' : 'No Solana wallet found in this page.');
+    const tips = DISCORD ? ['Buy and Sell open the token ' + (PHONE ? 'in Phantom' : 'on Jupiter in your browser') + ', where your wallet can sign.', 'To trade right inside the radar, use the Chrome version of Da Trading Tool.']
+      : SHELL === 'desktop' ? ['Buy and Sell open the token on Jupiter in your browser, where your wallet extension can sign.', 'To trade right inside the radar, use the Chrome version of Da Trading Tool.']
       : PHONE ? ['Buy and Sell open the token in Phantom (or on Jupiter in your browser) so you can trade there with one tap.', 'Or open Da Trading Tool inside Phantom\'s own browser: then Connect wallet works right here.']
       : location.protocol === 'file:' ? ['Install Phantom, Solflare or Backpack in Chrome if you haven\'t.', 'Pages opened as a file need one switch: open chrome://extensions, click Details on your wallet, turn on "Allow access to file URLs", then reload this page.', 'Or use Buy and Sell anyway: they open the token on Jupiter.']
       : ['Install Phantom, Solflare or Backpack in this browser, then reload this page.'];
